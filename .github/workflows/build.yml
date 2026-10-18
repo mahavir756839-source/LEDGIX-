@@ -1,9 +1,9 @@
+
 name: Build LEDGIX APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,72 +11,84 @@ permissions:
 
 jobs:
   build:
-    name: Build LEDGIX
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and extract LEDGIX source
+      - name: Find and extract source ZIP
         shell: bash
         run: |
           set -e
-
           ZIP="$(find . -maxdepth 1 -type f \
             -name 'LEDGIX-source*.zip' | sort | head -n 1)"
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: LEDGIX source ZIP not found."
+            echo "ERROR: LEDGIX-source ZIP not found"
             ls -la
             exit 1
           fi
 
-          echo "Using ZIP: $ZIP"
           mkdir -p extracted
-          unzip -o "$ZIP" -d extracted
+          unzip -q "$ZIP" -d extracted
 
           SETTINGS="$(find extracted -type f \
-            -name settings.gradle.kts -print -quit)"
+            \( -name settings.gradle -o \
+               -name settings.gradle.kts \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            SETTINGS="$(find extracted -type f \
-              -name settings.gradle -print -quit)"
-          fi
-
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found."
-            find extracted -maxdepth 5 -type f | head -200
+            echo "ERROR: Gradle settings file not found"
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "ERROR: Android app Gradle file not found."
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android app Gradle file not found"
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found: $PROJECT_DIR"
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
+      - name: Install Android SDK tools
         shell: bash
         run: |
           set -e
-          sdkmanager --version
-          yes | sdkmanager --licenses || true
-          sdkmanager \
+
+          SDK="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+
+          curl -fL --retry 3 \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            -o "$RUNNER_TEMP/android-tools.zip"
+
+          mkdir -p "$RUNNER_TEMP/android-tools"
+          unzip -q "$RUNNER_TEMP/android-tools.zip" \
+            -d "$RUNNER_TEMP/android-tools"
+
+          mv "$RUNNER_TEMP/android-tools/cmdline-tools" \
+            "$SDK/cmdline-tools/latest"
+
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept licenses and install SDK packages
+        shell: bash
+        run: |
+          set -e
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
+
+          sdkmanager --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -84,7 +96,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
+      - name: Build APK
         shell: bash
         run: |
           set -e
@@ -97,7 +109,7 @@ jobs:
             gradle assembleDebug --no-daemon
           fi
 
-      - name: Locate and rename APK
+      - name: Prepare APK
         shell: bash
         run: |
           set -e
@@ -107,18 +119,18 @@ jobs:
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: Debug APK was not generated."
+            echo "ERROR: APK not generated"
             exit 1
           fi
 
-          cp "$APK" LEDGIX-debug.apk
-          ls -lh LEDGIX-debug.apk
+          cp "$APK" LEDGIX.apk
+          ls -lh LEDGIX.apk
 
-      - name: Upload LEDGIX APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LEDGIX-apk
-          path: LEDGIX-debug.apk
+          path: LEDGIX.apk
           if-no-files-found: error
           retention-days: 7
           
