@@ -1,4 +1,3 @@
-
 name: Build LEDGIX APK
 
 on:
@@ -12,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    name: Build LEDGIX
     runs-on: ubuntu-latest
 
     steps:
@@ -24,42 +24,42 @@ jobs:
           set -e
 
           ZIP="$(find . -maxdepth 1 -type f \
-            \( -name 'LEDGIX-source*.zip' -o -name 'LEDGIX-source.zip' \) \
-            | sort | head -n 1)"
+            -name 'LEDGIX-source*.zip' | sort | head -n 1)"
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: LEDGIX source ZIP nahi mili."
+            echo "ERROR: LEDGIX source ZIP not found."
             ls -la
             exit 1
           fi
 
-          echo "Source ZIP: $ZIP"
+          echo "Using ZIP: $ZIP"
+          mkdir -p extracted
           unzip -o "$ZIP" -d extracted
 
-          echo "Searching for Android project..."
           SETTINGS="$(find extracted -type f \
-            -path '*/BajrangTally/settings.gradle.kts' \
-            -print -quit)"
+            -name settings.gradle.kts -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
             SETTINGS="$(find extracted -type f \
-              -name settings.gradle.kts -print -quit)"
+              -name settings.gradle -print -quit)"
           fi
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle.kts nahi mila."
-            find extracted -maxdepth 4 -type f | head -200
+            echo "ERROR: Gradle settings file not found."
+            find extracted -maxdepth 5 -type f | head -200
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
-          echo "Android project: $PROJECT_DIR"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          test -f "$PROJECT_DIR/app/build.gradle.kts" || {
-            echo "ERROR: app/build.gradle.kts nahi mila."
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "ERROR: Android app Gradle file not found."
             exit 1
-          }
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found: $PROJECT_DIR"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -74,8 +74,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" \
+          sdkmanager --version
+          yes | sdkmanager --licenses || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
             "build-tools;35.0.0"
 
       - name: Set up Gradle
@@ -86,24 +89,25 @@ jobs:
         run: |
           set -e
           cd "$PROJECT_DIR"
-          chmod +x gradlew 2>/dev/null || true
 
-          if [ -f ./gradlew ]; then
+          if [ -f gradlew ]; then
+            chmod +x gradlew
             ./gradlew assembleDebug --no-daemon
           else
             gradle assembleDebug --no-daemon
           fi
 
-      - name: Find and rename APK
+      - name: Locate and rename APK
         shell: bash
         run: |
           set -e
+
           APK="$(find "$PROJECT_DIR" -type f \
             -path '*/build/outputs/apk/debug/*.apk' \
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK generate nahi hui."
+            echo "ERROR: Debug APK was not generated."
             exit 1
           fi
 
