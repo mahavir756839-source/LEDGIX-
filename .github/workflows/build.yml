@@ -1,0 +1,46 @@
+
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract LEDGIX project from zip
+        run: |
+          unzip -o LEDGIX-source.zip
+          test -f BajrangTally/settings.gradle.kts
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        working-directory: BajrangTally
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Rename APK to LEDGIX
+        run: cp BajrangTally/app/build/outputs/apk/debug/app-debug.apk LEDGIX-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LEDGIX-apk
+          path: LEDGIX-debug.apk
+          
