@@ -18,12 +18,48 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract LEDGIX source
+      - name: Find and extract LEDGIX source
+        shell: bash
         run: |
-          test -f LEDGIX-source.zip
-          unzip -o LEDGIX-source.zip
-          test -f BajrangTally/settings.gradle.kts
-          test -f BajrangTally/app/build.gradle.kts
+          set -e
+
+          ZIP="$(find . -maxdepth 1 -type f \
+            \( -name 'LEDGIX-source*.zip' -o -name 'LEDGIX-source.zip' \) \
+            | sort | head -n 1)"
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: LEDGIX source ZIP nahi mili."
+            ls -la
+            exit 1
+          fi
+
+          echo "Source ZIP: $ZIP"
+          unzip -o "$ZIP" -d extracted
+
+          echo "Searching for Android project..."
+          SETTINGS="$(find extracted -type f \
+            -path '*/BajrangTally/settings.gradle.kts' \
+            -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS="$(find extracted -type f \
+              -name settings.gradle.kts -print -quit)"
+          fi
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle.kts nahi mila."
+            find extracted -maxdepth 4 -type f | head -200
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "Android project: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          test -f "$PROJECT_DIR/app/build.gradle.kts" || {
+            echo "ERROR: app/build.gradle.kts nahi mila."
+            exit 1
+          }
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -35,30 +71,50 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
+          set -e
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
 
       - name: Build debug APK
-        working-directory: BajrangTally
-        run: gradle :app:assembleDebug --no-daemon
-
-      - name: Rename APK
+        shell: bash
         run: |
-          cp BajrangTally/app/build/outputs/apk/debug/app-debug.apk LEDGIX-debug.apk
-          test -s LEDGIX-debug.apk
+          set -e
+          cd "$PROJECT_DIR"
+          chmod +x gradlew 2>/dev/null || true
 
-      - name: Upload APK
+          if [ -f ./gradlew ]; then
+            ./gradlew assembleDebug --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
+
+      - name: Find and rename APK
+        shell: bash
+        run: |
+          set -e
+          APK="$(find "$PROJECT_DIR" -type f \
+            -path '*/build/outputs/apk/debug/*.apk' \
+            -print -quit)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK generate nahi hui."
+            exit 1
+          fi
+
+          cp "$APK" LEDGIX-debug.apk
+          ls -lh LEDGIX-debug.apk
+
+      - name: Upload LEDGIX APK
         uses: actions/upload-artifact@v4
         with:
           name: LEDGIX-apk
           path: LEDGIX-debug.apk
           if-no-files-found: error
+          retention-days: 7
           
