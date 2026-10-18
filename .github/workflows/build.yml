@@ -22,10 +22,10 @@ jobs:
         run: |
           set -e
           ZIP="$(find . -maxdepth 1 -type f \
-            -name 'LEDGIX-source*.zip' | sort | head -n 1)"
+            -iname 'LEDGIX-source*.zip' | sort | head -n 1)"
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: LEDGIX-source ZIP not found"
+            echo "ERROR: LEDGIX source ZIP not found"
             ls -la
             exit 1
           fi
@@ -34,23 +34,19 @@ jobs:
           unzip -q "$ZIP" -d extracted
 
           SETTINGS="$(find extracted -type f \
-            \( -name settings.gradle -o \
-               -name settings.gradle.kts \) -print -quit)"
+            \( -name settings.gradle \
+            -o -name settings.gradle.kts \) \
+            -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found"
+            echo "ERROR: Gradle settings file missing in ZIP"
+            find extracted -maxdepth 3 -type f | head -100
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
-
-          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: Android app Gradle file not found"
-            exit 1
-          fi
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -62,7 +58,6 @@ jobs:
         shell: bash
         run: |
           set -e
-
           SDK="$RUNNER_TEMP/android-sdk"
           mkdir -p "$SDK/cmdline-tools"
 
@@ -86,12 +81,43 @@ jobs:
         shell: bash
         run: |
           set -e
-          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses \
+            >/dev/null 2>&1 || true
 
           sdkmanager --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Fix missing launcher background color
+        shell: bash
+        run: |
+          set -e
+          RES="$PROJECT_DIR/app/src/main/res"
+          mkdir -p "$RES/values"
+
+          if grep -Rqs \
+            'ic_launcher_background' \
+            "$RES" --include='*.xml'; then
+
+            if ! grep -Rqs \
+              'name="ic_launcher_background"' \
+              "$RES/values" --include='*.xml'; then
+
+              cat > "$RES/values/ic_launcher_background.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#10131C</color>
+          </resources>
+          XML
+            fi
+          else
+            echo "Launcher background reference not found; no color added."
+          fi
+
+          echo "Launcher resource check:"
+          grep -Rns 'ic_launcher_background' "$RES" \
+            --include='*.xml' || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -113,13 +139,12 @@ jobs:
         shell: bash
         run: |
           set -e
-
           APK="$(find "$PROJECT_DIR" -type f \
             -path '*/build/outputs/apk/debug/*.apk' \
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK not generated"
+            echo "ERROR: APK was not generated"
             exit 1
           fi
 
