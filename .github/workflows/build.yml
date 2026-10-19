@@ -22,7 +22,7 @@ jobs:
         run: |
           set -e
           ZIP="$(find . -maxdepth 1 -type f \
-            -iname 'LEDGIX-source*.zip' | sort | head -n 1)"
+            -iname 'LEDGIX*.zip' | sort | head -n 1)"
 
           if [ -z "$ZIP" ]; then
             echo "ERROR: LEDGIX source ZIP not found"
