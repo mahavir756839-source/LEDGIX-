@@ -44,7 +44,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ledgix_source"
           unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/ledgix_source"
 
-          SETTINGS="$(find "$RUNNER_TEMP/ledgix_source" -type f \\( -name settings.gradle -o -name settings.gradle.kts \\) -print -quit)"
+          SETTINGS="$(find "$RUNNER_TEMP/ledgix_source" -type f -name settings.gradle.kts -print -quit)"
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS="$(find "$RUNNER_TEMP/ledgix_source" -type f -name settings.gradle -print -quit)"
+          fi
           if [ -z "$SETTINGS" ]; then
             echo "ERROR: settings.gradle(.kts) not found in source ZIP."
             exit 1
