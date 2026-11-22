@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build LEDGIX APK
+    name: Build LEDGIX Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -19,79 +19,65 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
         with:
-          channel: stable
-          cache: true
+          gradle-version: '8.7'
 
-      - name: Find and extract LEDGIX source ZIP
+      - name: Find and extract LEDGIX Android source ZIP
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ledgix_unpacked"
-          ZIP_FILE="$(find . -type f -iname '*.zip' -not -path './.git/*' -print -quit)"
+          ZIP_FILE="$(find . -maxdepth 3 -type f -iname 'LEDGIX-source*.zip' -print -quit)"
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No source ZIP found in repository."
-            echo "Upload the LEDGIX Flutter source ZIP to the repository first."
+            echo "ERROR: LEDGIX-source*.zip not found in repository root."
+            echo "Upload the Android source ZIP to the repository root, then run this workflow again."
             exit 1
           fi
-          echo "Using source archive: $ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/ledgix_unpacked"
-          PUBSPEC="$(find "$RUNNER_TEMP/ledgix_unpacked" -type f -name pubspec.yaml -print -quit)"
-          if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found inside the ZIP."
+
+          mkdir -p "$RUNNER_TEMP/ledgix_source"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/ledgix_source"
+
+          SETTINGS="$(find "$RUNNER_TEMP/ledgix_source" -type f \\( -name settings.gradle -o -name settings.gradle.kts \\) -print -quit)"
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle(.kts) not found in source ZIP."
             exit 1
           fi
-          PROJECT_DIR="$(dirname "$PUBSPEC")"
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android app module build file not found."
+            exit 1
+          fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Flutter project: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
+          echo "Android project: $PROJECT_DIR"
+          find "$PROJECT_DIR" -maxdepth 3 -type f | sort | head -100
 
-      - name: Generate Android platform files
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          if [ ! -d android ]; then
-            flutter create --platforms=android --org com.ledgix .
-          fi
-
-      - name: Install Flutter dependencies
+      - name: Build LEDGIX Debug APK
         run: |
           cd "$PROJECT_DIR"
-          flutter pub get
-
-      - name: Analyze source (non-blocking)
-        continue-on-error: true
-        run: |
-          cd "$PROJECT_DIR"
-          flutter analyze
-
-      - name: Build release APK
-        run: |
-          cd "$PROJECT_DIR"
-          flutter build apk --release
+          gradle --no-daemon --stacktrace assembleDebug
 
       - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
-          APK="$PROJECT_DIR/build/app/outputs/flutter-apk/app-release.apk"
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           ls -lh "$APK"
           sha256sum "$APK"
 
-      - name: Upload APK artifact
+      - name: Upload LEDGIX APK
         uses: actions/upload-artifact@v4
         with:
           name: LEDGIX-APK
-          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
