@@ -1,0 +1,97 @@
+name: LEDGIX APK Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build LEDGIX APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Find and extract LEDGIX source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ledgix_unpacked"
+          ZIP_FILE="$(find . -type f -iname '*.zip' -not -path './.git/*' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No source ZIP found in repository."
+            echo "Upload the LEDGIX Flutter source ZIP to the repository first."
+            exit 1
+          fi
+          echo "Using source archive: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/ledgix_unpacked"
+          PUBSPEC="$(find "$RUNNER_TEMP/ledgix_unpacked" -type f -name pubspec.yaml -print -quit)"
+          if [ -z "$PUBSPEC" ]; then
+            echo "ERROR: pubspec.yaml not found inside the ZIP."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$PUBSPEC")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Flutter project: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
+
+      - name: Generate Android platform files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.ledgix .
+          fi
+
+      - name: Install Flutter dependencies
+        run: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+
+      - name: Analyze source (non-blocking)
+        continue-on-error: true
+        run: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+
+      - name: Build release APK
+        run: |
+          cd "$PROJECT_DIR"
+          flutter build apk --release
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$PROJECT_DIR/build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LEDGIX-APK
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
