@@ -34,10 +34,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_FILE="$(find . -maxdepth 3 -type f -iname 'LEDGIX-source*.zip' -print -quit)"
+          ZIP_FILE="$(find . -maxdepth 2 -type f -iname '*.zip' -print -quit)"
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: LEDGIX-source*.zip not found in repository root."
-            echo "Upload the Android source ZIP to the repository root, then run this workflow again."
+            echo "ERROR: No source ZIP found in repository root."
+            echo "Upload the LEDGIX Android source ZIP to the repository root, then run this workflow again."
             exit 1
           fi
 
